@@ -1,37 +1,26 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using UnityEngine;
-using KSP;
-using KSP.IO;
-using KSP.UI.Screens;
 using System.Text.RegularExpressions;
-
 
 namespace ProjectManager
 {
     [KSPScenario(ScenarioCreationOptions.AddToAllGames, new GameScenes[] { GameScenes.SPACECENTER, GameScenes.EDITOR, GameScenes.FLIGHT })]
-    class ProjectManagerScenario : ScenarioModule
+    public class ProjectManagerScenario : ScenarioModule
     {
+        #region Fields
+
+        public const string launchCountKey = "launchCount";
+        public const string seriesNameKey = "seriesName";
+        public static ConfigNode rootNode;
+
+        #endregion Fields
+
+        #region Properties
+
         public static ProjectManagerScenario Instance { get; private set; }
 
-        // String constants.
-        const string DebugTag = "[Project Manager]";
+        #endregion Properties
 
-        // Settings node.
-        private ConfigNode rootNode;
-
-        public override void OnAwake()
-        {
-            base.OnAwake();
-
-            // Create singleton accessor.
-            Instance = this;
-
-            // Subscribe to launch event.
-            GameEvents.OnVesselRollout.Add(ApplyLaunchNumber);
-        }
+        #region Methods
 
         public void ApplyLaunchNumber(ShipConstruct shipConstruct)
         {
@@ -41,24 +30,23 @@ namespace ProjectManager
             // Get rollout name.
             string rolloutName = vessel.vesselName;
 
-            if(!string.IsNullOrEmpty(rolloutName))
+            if (!string.IsNullOrEmpty(rolloutName))
             {
                 // Pattern to detect any substrings in square brackets.
                 var seriesPattern = @"\[(.*?)\]";
                 var seriesMatch = Regex.Match(rolloutName, seriesPattern);
 
                 // Check if a series tag is in the vessel rollout name.
-                if(seriesMatch.Value != string.Empty)
+                if (seriesMatch.Value != string.Empty)
                 {
                     // Get the name of the series.
                     string seriesName = seriesMatch.Value;
 
                     // Strip square brackets from series name.
-                    seriesName = seriesName.Replace("[", "");
-                    seriesName = seriesName.Replace("]", "");
+                    seriesName = seriesName.Replace("[", string.Empty).Replace("]", string.Empty).Trim();
 
-                    // Create series node name by stripping any whitespace.
-                    string seriesNodeName = Regex.Replace(seriesName, @"\s+", "");
+                    // NOTE: Whitespace should be allowed in series name, so switch to internally using this as a node key while the series name is saved in config
+                    string seriesId = Regex.Replace(seriesName, @"\s+", "");
 
                     var projectNodes = rootNode.GetNodes();
 
@@ -67,7 +55,7 @@ namespace ProjectManager
 
                     foreach (var projectNode in projectNodes)
                     {
-                        if (projectNode.name == seriesNodeName)
+                        if (projectNode.name == seriesId)
                         {
                             projectFound = true;
                         }
@@ -75,13 +63,13 @@ namespace ProjectManager
 
                     if (projectFound)
                     {
-                        var projectNode = rootNode.GetNode(seriesNodeName);
+                        var projectNode = rootNode.GetNode(seriesId);
 
-                        if(projectNode != null)
+                        if (projectNode != null)
                         {
-                            string launchCountString = projectNode.GetValue("launchCount");
+                            string launchCountString = projectNode.GetValue(launchCountKey);
 
-                            if(!string.IsNullOrEmpty(launchCountString))
+                            if (!string.IsNullOrEmpty(launchCountString))
                             {
                                 // Get the current launch count and increment it.
                                 int launchCount = Convert.ToInt32(launchCountString);
@@ -94,7 +82,8 @@ namespace ProjectManager
                                 vessel.vesselName = launchName;
 
                                 // Write new launchcount back to node.
-                                projectNode.SetValue("launchCount", launchCount.ToString());
+                                projectNode.SetValue(launchCountKey, launchCount.ToString(), true);
+                                projectNode.SetValue(seriesNameKey, seriesName, true);
                             }
                         }
                     }
@@ -107,11 +96,23 @@ namespace ProjectManager
                         vessel.vesselName = launchName;
 
                         // Create new entry for this series, set launch count to one.
-                        var projectNode = rootNode.AddNode(seriesNodeName);
-                        projectNode.AddValue("launchCount", "1");
+                        var projectNode = rootNode.AddNode(seriesId);
+                        projectNode.AddValue(launchCountKey, "1");
+                        projectNode.AddValue(seriesNameKey, seriesName);
                     }
                 }
             }
+        }
+
+        public override void OnAwake()
+        {
+            base.OnAwake();
+
+            // Create singleton accessor.
+            Instance = this;
+
+            // Subscribe to launch event.
+            GameEvents.OnVesselRollout.Add(ApplyLaunchNumber);
         }
 
         public override void OnLoad(ConfigNode node)
@@ -137,5 +138,7 @@ namespace ProjectManager
             // Save the rootnode to a file on disk.
             rootNode.Save(KSPUtil.ApplicationRootPath + "saves/" + saveFolder + "/ProjectManager.settings");
         }
+
+        #endregion Methods
     }
 }
